@@ -1,0 +1,409 @@
+# Complete Workflow Guide - Carbon Brokers Backend
+
+## SECTION 1: START THE BACKEND
+
+### Option A: PowerShell (Windows)
+```powershell
+# 1. Navigate to Backend folder
+cd c:\Users\jaink\Documents\ML\carbon_brokers\Backend
+
+# 2. Set Python path and run uvicorn
+$env:PYTHONPATH="c:\Users\jaink\Documents\ML\carbon_brokers\Backend"
+C:/Users/jaink/Documents/ML/carbon_brokers/.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Expected Output:**
+```
+INFO:     Will watch for changes in these directories: ['C:\\Users\\jaink\\Documents\\ML\\carbon_brokers\\Backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started server process
+INFO:     Application startup complete.
+```
+
+---
+
+## SECTION 2: CREATE A PROJECT
+
+### Using Python (Recommended for Testing)
+```python
+import requests
+import json
+
+# Create a project
+response = requests.post(
+    "http://localhost:8000/projects/",
+    json={"name": "Forest Carbon Analysis 2026"}
+)
+
+project = response.json()
+project_id = project['id']
+
+print(f"✓ Project Created!")
+print(f"  Project ID: {project_id}")
+print(f"  Status: {project['status']}")
+```
+
+### Using cURL (PowerShell)
+```powershell
+$headers = @{"Content-Type"="application/json"}
+$body = @{name="Forest Carbon Analysis 2026"} | ConvertTo-Json
+
+$response = Invoke-WebRequest -Uri "http://localhost:8000/projects/" `
+    -Method POST `
+    -Headers $headers `
+    -Body $body
+
+$project = $response.Content | ConvertFrom-Json
+$project_id = $project.id
+
+Write-Host "✓ Project Created!"
+Write-Host "  Project ID: $project_id"
+Write-Host "  Status: $($project.status)"
+```
+
+---
+
+## SECTION 3: UPLOAD IMAGES
+
+### Using Python (Best Option)
+```python
+import requests
+from pathlib import Path
+
+project_id = 1  # Use the ID from previous step
+
+# Path to your image folder
+images_folder = r"C:\path\to\your\drone\images"
+# Example: r"C:\Users\jaink\Documents\ML\carbon_brokers\Backend\data\sample_images"
+
+# Get all image files
+image_files = list(Path(images_folder).glob("*.jpg")) + \
+              list(Path(images_folder).glob("*.png")) + \
+              list(Path(images_folder).glob("*.tif"))
+
+print(f"Found {len(image_files)} images to upload")
+
+if len(image_files) == 0:
+    print("❌ No images found! Please add images to the folder.")
+else:
+    # Prepare files for upload
+    files = [('files', open(img, 'rb')) for img in image_files]
+    
+    # Upload images
+    response = requests.post(
+        f"http://localhost:8000/projects/{project_id}/upload-images/",
+        files=files
+    )
+    
+    # Close files
+    for _, f in files:
+        f.close()
+    
+    if response.status_code == 200:
+        print(f"✓ {len(image_files)} images uploaded successfully!")
+        print(f"  Processing has started...")
+        result = response.json()
+        print(f"  Message: {result['message']}")
+    else:
+        print(f"❌ Upload failed: {response.status_code}")
+        print(f"  Error: {response.text}")
+```
+
+### Using PowerShell (Alternative)
+```powershell
+$project_id = 1
+$imagesFolder = "C:\path\to\your\drone\images"
+$files = Get-ChildItem -Path $imagesFolder -Include *.jpg, *.png, *.tif
+
+if ($files.Count -eq 0) {
+    Write-Host "❌ No images found!"
+} else {
+    Write-Host "Uploading $($files.Count) images..."
+    
+    $url = "http://localhost:8000/projects/$project_id/upload-images/"
+    
+    # Create multipart form data
+    $fileStreams = @()
+    foreach ($file in $files) {
+        $fileStreams += $file.FullName
+    }
+    
+    # Note: PowerShell multipart is complex, use Python instead for easier testing
+    Write-Host "Tip: Use Python script above for easier file uploads"
+}
+```
+
+---
+
+## SECTION 4: MONITOR PROCESSING STATUS
+
+### Check Project Status (Python)
+```python
+import requests
+import time
+
+project_id = 1
+
+def check_status(project_id):
+    response = requests.get(f"http://localhost:8000/projects/{project_id}")
+    project = response.json()
+    return project
+
+# Check status
+project = check_status(project_id)
+
+print(f"Project: {project['name']}")
+print(f"Status: {project['status']}")
+print(f"CO2 Results: {project['total_co2_tonnes']} tonnes")
+
+# Or monitor with loop
+print("\n--- Monitoring Processing ---")
+for i in range(30):
+    project = check_status(project_id)
+    print(f"[{i*10}s] Status: {project['status']}")
+    
+    if "COMPLETED" in project['status']:
+        print(f"\n✓ Processing Complete!")
+        print(f"  Total CO2 Sequestered: {project['total_co2_tonnes']} tonnes")
+        break
+    elif "FAILED" in project['status']:
+        print(f"\n❌ Processing Failed: {project['status']}")
+        break
+    
+    time.sleep(10)  # Check every 10 seconds
+```
+
+### Using cURL (PowerShell)
+```powershell
+$project_id = 1
+
+$response = Invoke-WebRequest -Uri "http://localhost:8000/projects/$project_id" `
+    -Method GET
+
+$project = $response.Content | ConvertFrom-Json
+
+Write-Host "Project: $($project.name)"
+Write-Host "Status: $($project.status)"
+Write-Host "CO2 Results: $($project.total_co2_tonnes) tonnes"
+```
+
+---
+
+## SECTION 5: GET RESULTS
+
+### All Results Location
+```
+C:\Users\jaink\Documents\ML\carbon_brokers\Backend\data\{project_id}\
+  ├── raw_images\          # Your uploaded images
+  ├── dsm.tif             # Digital Surface Model
+  ├── dtm.tif             # Digital Terrain Model
+  ├── chm.tif             # Canopy Height Model
+  ├── dsm_low_res.tif     # Low resolution DSM
+  ├── tree_crowns.gpkg    # Tree crown polygons (GeoPackage)
+  └── carbon_inventory.csv # Final results
+```
+
+### Read Results (Python)
+```python
+import pandas as pd
+from pathlib import Path
+
+project_id = 1
+results_file = f"./data/{project_id}/carbon_inventory.csv"
+
+if Path(results_file).exists():
+    # Read the CSV results
+    df = pd.read_csv(results_file)
+    
+    print("📊 Carbon Inventory Results")
+    print("=" * 80)
+    print(df.head(20))
+    
+    print("\n📈 Summary Statistics:")
+    print(f"  Total Trees: {len(df)}")
+    print(f"  Avg Height: {df['height_m'].mean():.2f} m")
+    print(f"  Avg Crown Area: {df['crown_area_sqm'].mean():.2f} m²")
+    print(f"  Total CO2: {df['co2_sequestered_kg'].sum() / 1000:.2f} tonnes")
+    
+    print("\n📄 Columns in Results:")
+    print(df.columns.tolist())
+else:
+    print(f"❌ Results file not found: {results_file}")
+```
+
+---
+
+## COMPLETE WORKFLOW (Step-by-Step)
+
+### Step 1: Start Backend
+```powershell
+cd c:\Users\jaink\Documents\ML\carbon_brokers\Backend
+$env:PYTHONPATH="c:\Users\jaink\Documents\ML\carbon_brokers\Backend"
+C:/Users/jaink/Documents/ML/carbon_brokers/.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+**Keep this terminal open!**
+
+---
+
+### Step 2: Open New Terminal & Create Project
+```powershell
+# Open new PowerShell terminal
+cd c:\Users\jaink\Documents\ML\carbon_brokers\Backend
+
+# Run Python script to create project
+python << 'EOF'
+import requests
+
+response = requests.post(
+    "http://localhost:8000/projects/",
+    json={"name": "My Forest Project"}
+)
+
+project = response.json()
+print(f"Project ID: {project['id']}")
+print(f"Status: {project['status']}")
+EOF
+```
+
+---
+
+### Step 3: Prepare Test Images
+```powershell
+# Create sample data directory
+mkdir -p data\1\raw_images
+mkdir -p data\sample_odm_outputs
+
+# For testing, you can use sample images or actual drone images
+# Place your drone images in: data\1\raw_images\
+
+# Create a dummy DTM for testing (if testing without real processing)
+# This will be needed for the CHM generation step
+```
+
+---
+
+### Step 4: Upload Images
+```powershell
+# Create and run this Python script
+python << 'EOF'
+import requests
+from pathlib import Path
+
+project_id = 1
+images_folder = r".\data\1\raw_images"
+
+# Get image files
+image_files = list(Path(images_folder).glob("*.jpg")) + \
+              list(Path(images_folder).glob("*.png"))
+
+if len(image_files) > 0:
+    files = [('files', open(img, 'rb')) for img in image_files]
+    
+    response = requests.post(
+        f"http://localhost:8000/projects/{project_id}/upload-images/",
+        files=files
+    )
+    
+    for _, f in files:
+        f.close()
+    
+    print(f"Status: {response.status_code}")
+    print(f"Message: {response.json()}")
+else:
+    print(f"No images found in {images_folder}")
+EOF
+```
+
+---
+
+### Step 5: Monitor & Get Results
+```powershell
+# Monitor status
+python << 'EOF'
+import requests
+import time
+
+project_id = 1
+
+for i in range(30):
+    response = requests.get(f"http://localhost:8000/projects/{project_id}")
+    project = response.json()
+    
+    print(f"[Attempt {i+1}] Status: {project['status']}")
+    
+    if "COMPLETED" in project['status']:
+        print(f"\n✓ SUCCESS! CO2: {project['total_co2_tonnes']} tonnes")
+        break
+    
+    time.sleep(5)
+EOF
+```
+
+---
+
+## API ENDPOINTS QUICK REFERENCE
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/projects/` | Create new project |
+| GET | `/projects/{id}` | Get project status & results |
+| POST | `/projects/{id}/upload-images/` | Upload drone images |
+
+---
+
+## TROUBLESHOOTING
+
+### 1. "ModuleNotFoundError: No module named 'app'"
+```powershell
+# Make sure you set PYTHONPATH
+$env:PYTHONPATH="c:\Users\jaink\Documents\ML\carbon_brokers\Backend"
+
+# And run from Backend folder
+cd c:\Users\jaink\Documents\ML\carbon_brokers\Backend
+```
+
+### 2. "Connection refused" error
+- Make sure backend is running in first terminal
+- Check that port 8000 is not blocked
+- Try: `netstat -ano | findstr :8000`
+
+### 3. Images not uploading
+- Check folder path exists
+- Ensure images are .jpg, .png, or .tif
+- Check file permissions
+
+### 4. Processing not starting
+- Celery worker needs to be running (optional for testing)
+- Without Celery, tasks run in simulation mode
+- Check Backend logs for errors
+
+---
+
+## NEXT STEPS
+
+1. **Test with sample images** - Try the workflow above
+2. **Set up Celery worker** - For background processing:
+   ```powershell
+   celery -A app.tasks worker --loglevel=info
+   ```
+3. **Set up Redis** - For task queue (Docker):
+   ```powershell
+   docker run -d -p 6379:6379 redis
+   ```
+4. **Integrate with Frontend** - Use API endpoints
+
+---
+
+## QUICK COMMAND SUMMARY
+
+```powershell
+# Terminal 1: Start Backend
+cd c:\Users\jaink\Documents\ML\carbon_brokers\Backend
+$env:PYTHONPATH="c:\Users\jaink\Documents\ML\carbon_brokers\Backend"
+C:/Users/jaink/Documents/ML/carbon_brokers/.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2: Run workflow
+python workflow.py
+```
+
+See `workflow.py` (provided below) for complete automated example.
